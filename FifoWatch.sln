@@ -1,0 +1,51 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.33328.57
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FifoWatch", "FifoWatch\FifoWatch.csproj", "{A1B2C3D4-5678-90AB-CDEF-012345678901}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "S7CommPlusDriver", "S7CommPlusDriver\src\S7CommPlusDriver\S7CommPlusDriver.csproj", "{781951D8-80DE-4E2F-92CA-A5FEF0059415}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Zlib.net", "S7CommPlusDriver\src\Zlib.net\Zlib.net.csproj", "{0C89B7A2-A218-49E4-B545-5B044A45F977}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A1B2C3D4-5678-90AB-CDEF-012345678901}.Debug|x64.ActiveCfg = Debug|x64
+		{A1B2C3D4-5678-90AB-CDEF-012345678901}.Debug|x64.Build.0 = Debug|x64
+		{A1B2C3D4-5678-90AB-CDEF-012345678901}.Debug|x86.ActiveCfg = Debug|x86
+		{A1B2C3D4-5678-90AB-CDEF-012345678901}.Debug|x86.Build.0 = Debug|x86
+		{A1B2C3D4-5678-90AB-CDEF-012345678901}.Release|x64.ActiveCfg = Release|x64
+		{A1B2C3D4-5678-90AB-CDEF-012345678901}.Release|x64.Build.0 = Release|x64
+		{A1B2C3D4-5678-90AB-CDEF-012345678901}.Release|x86.ActiveCfg = Release|x86
+		{A1B2C3D4-5678-90AB-CDEF-012345678901}.Release|x86.Build.0 = Release|x86
+		{781951D8-80DE-4E2F-92CA-A5FEF0059415}.Debug|x64.ActiveCfg = Debug|x64
+		{781951D8-80DE-4E2F-92CA-A5FEF0059415}.Debug|x64.Build.0 = Debug|x64
+		{781951D8-80DE-4E2F-92CA-A5FEF0059415}.Debug|x86.ActiveCfg = Debug|x86
+		{781951D8-80DE-4E2F-92CA-A5FEF0059415}.Debug|x86.Build.0 = Debug|x86
+		{781951D8-80DE-4E2F-92CA-A5FEF0059415}.Release|x64.ActiveCfg = Release|x64
+		{781951D8-80DE-4E2F-92CA-A5FEF0059415}.Release|x64.Build.0 = Release|x64
+		{781951D8-80DE-4E2F-92CA-A5FEF0059415}.Release|x86.ActiveCfg = Release|x86
+		{781951D8-80DE-4E2F-92CA-A5FEF0059415}.Release|x86.Build.0 = Release|x86
+		{0C89B7A2-A218-49E4-B545-5B044A45F977}.Debug|x64.ActiveCfg = Debug|x64
+		{0C89B7A2-A218-49E4-B545-5B044A45F977}.Debug|x64.Build.0 = Debug|x64
+		{0C89B7A2-A218-49E4-B545-5B044A45F977}.Debug|x86.ActiveCfg = Debug|x86
+		{0C89B7A2-A218-49E4-B545-5B044A45F977}.Debug|x86.Build.0 = Debug|x86
+		{0C89B7A2-A218-49E4-B545-5B044A45F977}.Release|x64.ActiveCfg = Release|x64
+		{0C89B7A2-A218-49E4-B545-5B044A45F977}.Release|x64.Build.0 = Release|x64
+		{0C89B7A2-A218-49E4-B545-5B044A45F977}.Release|x86.ActiveCfg = Release|x86
+		{0C89B7A2-A218-49E4-B545-5B044A45F977}.Release|x86.Build.0 = Release|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {B2C3D4E5-F678-90AB-CDEF-123456789012}
+	EndGlobalSection
+EndGlobal

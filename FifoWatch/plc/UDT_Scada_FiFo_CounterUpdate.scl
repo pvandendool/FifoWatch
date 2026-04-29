@@ -1,0 +1,56 @@
+// Example UDT for use with FifoWatch
+// One entry in a SCADA FIFO counter-update buffer.
+
+TYPE "UDT_Scada_FiFo_CounterUpdate"
+  STRUCT
+    CounterValue : DInt;    // accumulated counter value
+    StationID    : Int;     // source station identifier
+    Timestamp    : DTL;     // time of the update
+    Status       : Byte;    // 0=OK, 1=overflow, 2=error
+  END_STRUCT;
+END_TYPE
+
+
+// Example Data Block using the UDT as a ring-buffer FIFO.
+// NextIndexToRead  = index of the oldest unread entry (consumer reads here, then increments)
+// NextIndexToWrite = index where the next entry will be written (producer writes here, then increments)
+// RecordsStored    = number of entries currently in the buffer
+
+DATA_BLOCK "DB_CounterFifo"
+  Buffer           : ARRAY[0..99] OF "UDT_Scada_FiFo_CounterUpdate";
+  NextIndexToRead  : Int;
+  NextIndexToWrite : Int;
+  RecordsStored    : Int;
+END_DATA_BLOCK
+
+
+// Minimal producer FC (write one entry into the FIFO)
+FUNCTION "FC_FifoWrite" : Void
+VAR_INPUT
+  Entry : "UDT_Scada_FiFo_CounterUpdate";
+END_VAR
+
+  IF "DB_CounterFifo".RecordsStored < 100 THEN
+    "DB_CounterFifo".Buffer["DB_CounterFifo".NextIndexToWrite] := Entry;
+    "DB_CounterFifo".NextIndexToWrite := ("DB_CounterFifo".NextIndexToWrite + 1) MOD 100;
+    "DB_CounterFifo".RecordsStored    := "DB_CounterFifo".RecordsStored + 1;
+  END_IF;
+
+END_FUNCTION
+
+
+// Minimal consumer FC (read and remove the oldest entry)
+FUNCTION "FC_FifoRead" : Bool       // returns TRUE if an entry was available
+VAR_OUTPUT
+  Entry : "UDT_Scada_FiFo_CounterUpdate";
+END_VAR
+
+  FC_FifoRead := FALSE;
+  IF "DB_CounterFifo".RecordsStored > 0 THEN
+    Entry := "DB_CounterFifo".Buffer["DB_CounterFifo".NextIndexToRead];
+    "DB_CounterFifo".NextIndexToRead  := ("DB_CounterFifo".NextIndexToRead + 1) MOD 100;
+    "DB_CounterFifo".RecordsStored    := "DB_CounterFifo".RecordsStored - 1;
+    FC_FifoRead := TRUE;
+  END_IF;
+
+END_FUNCTION

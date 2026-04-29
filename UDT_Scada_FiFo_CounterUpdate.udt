@@ -1,0 +1,43 @@
+﻿TYPE "UDT_Fifo_HeaderStatusBits"
+VERSION : 0.1
+   STRUCT
+      Empty { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // [.] Fifo empty
+      AlmostFull { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // [.] Fifo almost full (75%)
+      Full { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : Bool;   // [.] Fifo full (100%)
+   END_STRUCT;
+
+END_TYPE
+
+TYPE "UDT_Fifo_Header"
+VERSION : 0.1
+   STRUCT
+      Status { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : "UDT_Fifo_HeaderStatusBits";
+      MaxNrOfRecords { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : UInt;   // [n] Maximum nuber of records that can be stored in the fifo
+      NextIndexToRead { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : UInt;   // [Index] Index number of next record to read (Don't modify!)
+      NextIndexToWrite { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : UInt;   // [Index] Index number of nex record to write (Don't modify!)
+      RecordsStored { ExternalAccessible := 'False'; ExternalVisible := 'False'; ExternalWritable := 'False'} : UInt;   // [n] Current number of records stored in the fifo (Don't modify!)
+   END_STRUCT;
+
+END_TYPE
+
+TYPE "UDT_Scada_CounterUpdate"
+AUTHOR : VRIA
+FAMILY : HCSORTER
+VERSION : 0.1
+   STRUCT
+      Location : DInt := 0;
+      "Counter" : DInt := L#0;
+      Mode : Int;   // 1=Infeed, 2=Full
+   END_STRUCT;
+
+END_TYPE
+
+TYPE "UDT_Scada_FiFo_CounterUpdate"
+VERSION : 0.1
+   STRUCT
+      Data : Array[0..19] of "UDT_Scada_CounterUpdate";
+      Header : "UDT_Fifo_Header";
+   END_STRUCT;
+
+END_TYPE
+
