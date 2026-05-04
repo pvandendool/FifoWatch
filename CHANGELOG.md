@@ -2,6 +2,16 @@
 
 All notable changes to FifoWatch are documented here.
 
+## [1.1.0] - 2026-05-04
+
+### Added
+- Multi-FIFO monitoring: any number of named FIFO monitors can be configured and watched simultaneously from a single window.
+- Side-list layout: a monitor list on the left lets you switch between FIFOs; the right pane shows the live grid for the selected monitor.
+- Add / Edit dialog: FIFO tag configuration (array, head, tail, count, max-records, auto-detect) moved to a dedicated dialog opened via **+ Add** or **Edit**, keeping the main window uncluttered.
+- Global poll interval: one interval setting applies to all monitors; **▶ Start All** and **■ Stop All** start or stop polling for every monitor at once.
+- Persistent monitor config: the list of configured monitors (tag names, access sequences, names) is saved to `%LOCALAPPDATA%\FifoWatch\monitors.xml` on close and restored on next launch.
+- Per-tag array cache in PlcService: the symbol-resolution cache is now keyed per array tag name, so multiple active monitors no longer evict each other's cached variable lists.
+
 ## [1.0.1] - 2026-05-04
 
 ### Fixed
