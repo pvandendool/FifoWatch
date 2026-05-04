@@ -24,9 +24,8 @@ namespace FifoWatch.Services
         private S7CommPlusConnection _conn;
         private List<VarInfo> _varInfoList = new List<VarInfo>();
 
-        // Cache for symbol-based array expansion (avoids re-resolving on every poll tick)
-        private string _cachedArrayTagName;
-        private List<VarInfo> _cachedArrayVarInfos = new List<VarInfo>();
+        // Per-tag cache for symbol-based array expansion (keyed on array tag name)
+        private readonly Dictionary<string, List<VarInfo>> _arrayVarInfoCache = new Dictionary<string, List<VarInfo>>();
 
         public bool IsConnected { get; private set; }
 
@@ -48,8 +47,7 @@ namespace FifoWatch.Services
             }
             IsConnected = false;
             _varInfoList.Clear();
-            _cachedArrayTagName = null;
-            _cachedArrayVarInfos.Clear();
+            _arrayVarInfoCache.Clear();
         }
 
         // --- Tree-browse API (no full Browse() required) ---
@@ -448,8 +446,8 @@ namespace FifoWatch.Services
         // (array container selected directly — enumerate all elements).
         private List<VarInfo> BuildArrayVarInfosFromSymbol(string pickedSymbol, string arrayPrefix)
         {
-            if (_cachedArrayTagName == pickedSymbol && _cachedArrayVarInfos.Count > 0)
-                return _cachedArrayVarInfos;
+            if (_arrayVarInfoCache.TryGetValue(pickedSymbol, out var cached) && cached.Count > 0)
+                return cached;
 
             var result = new List<VarInfo>();
             if (!IsConnected) return result;
@@ -614,16 +612,17 @@ namespace FifoWatch.Services
             return result;
         }
 
-        public void ResetArrayCache()
+        public void ResetArrayCache(string tagName = null)
         {
-            _cachedArrayTagName = null;
-            _cachedArrayVarInfos.Clear();
+            if (tagName == null)
+                _arrayVarInfoCache.Clear();
+            else
+                _arrayVarInfoCache.Remove(tagName);
         }
 
         private void CacheArrayResult(string tagName, List<VarInfo> list)
         {
-            _cachedArrayTagName = tagName;
-            _cachedArrayVarInfos = list;
+            _arrayVarInfoCache[tagName] = list;
         }
 
         // Returns the path to the struct that CONTAINS the array field (trailing dot included).

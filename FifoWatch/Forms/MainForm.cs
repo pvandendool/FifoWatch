@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Xml.Serialization;
 using FifoWatch.Models;
 using FifoWatch.Services;
 using S7CommPlusDriver;
@@ -12,12 +15,15 @@ namespace FifoWatch.Forms
     public partial class MainForm : Form
     {
         private readonly PlcService _plcService = new PlcService();
-        private readonly FifoDefinition _definition = new FifoDefinition();
-        private System.Threading.Timer _pollTimer;
+        private readonly List<FifoMonitorState> _monitors = new List<FifoMonitorState>();
         private int _pollIntervalMs = 500;
-        private bool _polling;
-        private List<FifoEntry> _lastEntries;
-        private bool _displayIsStale;
+
+        private System.Threading.Timer _sharedTimer;
+        private volatile bool _timerRunning;
+        private volatile bool _globalPollingSuspended;
+        private readonly object _tickLock = new object();
+
+        private FifoMonitorState _selectedMonitor;
 
         public MainForm()
         {
@@ -25,6 +31,13 @@ namespace FifoWatch.Forms
             txtIp.Text = Properties.Settings.Default.LastIpAddress;
             UpdateUiState();
             InitGridContextMenu();
+            Load += (s, e) =>
+            {
+                splitMain.Panel1MinSize    = 160;
+                splitMain.Panel2MinSize    = 300;
+                splitMain.SplitterDistance = 220;
+                LoadConfig();
+            };
         }
 
         private void InitGridContextMenu()
@@ -42,8 +55,7 @@ namespace FifoWatch.Forms
         {
             var row = dgvFifo.CurrentRow;
             if (row == null) return;
-            var cell = row.Cells[columnName];
-            Clipboard.SetText(cell?.Value?.ToString() ?? string.Empty);
+            Clipboard.SetText(row.Cells[columnName]?.Value?.ToString() ?? string.Empty);
         }
 
         // ---- Connection ----
@@ -63,7 +75,7 @@ namespace FifoWatch.Forms
             int res = await Task.Run(() => _plcService.Connect(ip, user, pass));
 
             if (res == 0)
-                SetStatus("Connected — click Browse... to select variables.");
+                SetStatus("Connected — click + Add to configure a FIFO monitor.");
             else
                 SetStatus($"Connection failed (error {res}).");
 
@@ -72,292 +84,414 @@ namespace FifoWatch.Forms
 
         private void btnDisconnect_Click(object sender, EventArgs e)
         {
-            StopPolling();
+            foreach (var m in _monitors)
+                m.IsPolling = false;
+
+            bool gotLock = Monitor.TryEnter(_tickLock, 2000);
+            if (gotLock) Monitor.Exit(_tickLock);
+
             _plcService.Disconnect();
-            lblLivePointers.Text = "NextIndexToRead: —   NextIndexToWrite: —   RecordsStored: —   MaxNrOfRecords: —";
-            UpdateUiState();
+
+            foreach (ListViewItem item in listMonitors.Items)
+                SetListItemPolling(item, false);
+
+            UpdateRightPane(null);
             SetStatus("Disconnected.");
+            UpdateUiState();
         }
 
-        // ---- FIFO selection ----
+        // ---- Monitor list ----
 
-        private async void btnBrowseArray_Click(object sender, EventArgs e)
+        private void listMonitors_SelectedIndexChanged(object sender, EventArgs e)
         {
-            var v = await ShowBrowseDialog();
-            if (v != null)
-            {
-                _definition.ArrayTag = v;
-                txtArrayTag.Text = v.Name;
-                _lastEntries = null;
-                _displayIsStale = false;
-                _plcService.ResetArrayCache();
-            }
+            _selectedMonitor = listMonitors.SelectedItems.Count > 0
+                ? listMonitors.SelectedItems[0].Tag as FifoMonitorState
+                : null;
+            UpdateRightPane(_selectedMonitor);
+            UpdateUiState();
         }
 
-        private void btnClearArray_Click(object sender, EventArgs e)
+        private void btnAddMonitor_Click(object sender, EventArgs e)
         {
-            _definition.ArrayTag = null;
-            txtArrayTag.Text = string.Empty;
-            _lastEntries = null;
-            _displayIsStale = false;
-            _plcService.ResetArrayCache();
+            OpenConfigureDialog(null);
         }
 
-        private async void btnBrowseHead_Click(object sender, EventArgs e)
+        private void btnEditMonitor_Click(object sender, EventArgs e)
         {
-            var v = await ShowBrowseDialog();
-            if (v != null) { _definition.HeadTag = v; txtHeadTag.Text = v.Name; }
+            if (_selectedMonitor == null) return;
+            OpenConfigureDialog(_selectedMonitor);
         }
 
-        private void btnClearHead_Click(object sender, EventArgs e)
+        private void OpenConfigureDialog(FifoMonitorState existing)
         {
-            _definition.HeadTag = null;
-            txtHeadTag.Text = string.Empty;
-        }
+            bool wasPolling = existing != null && existing.IsPolling;
+            if (wasPolling) existing.IsPolling = false;
 
-        private async void btnBrowseTail_Click(object sender, EventArgs e)
-        {
-            var v = await ShowBrowseDialog();
-            if (v != null) { _definition.TailTag = v; txtTailTag.Text = v.Name; }
-        }
-
-        private void btnClearTail_Click(object sender, EventArgs e)
-        {
-            _definition.TailTag = null;
-            txtTailTag.Text = string.Empty;
-        }
-
-        private async void btnBrowseCount_Click(object sender, EventArgs e)
-        {
-            var v = await ShowBrowseDialog();
-            if (v != null) { _definition.CountTag = v; txtCountTag.Text = v.Name; }
-        }
-
-        private void btnClearCount_Click(object sender, EventArgs e)
-        {
-            _definition.CountTag = null;
-            txtCountTag.Text = string.Empty;
-        }
-
-        private async void btnBrowseMaxRecords_Click(object sender, EventArgs e)
-        {
-            var v = await ShowBrowseDialog();
-            if (v != null) { _definition.MaxRecordsTag = v; txtMaxRecordsTag.Text = v.Name; }
-        }
-
-        private void btnClearMaxRecords_Click(object sender, EventArgs e)
-        {
-            _definition.MaxRecordsTag = null;
-            txtMaxRecordsTag.Text = string.Empty;
-        }
-
-        private async void btnAutoDetect_Click(object sender, EventArgs e)
-        {
-            if (_definition.ArrayTag == null)
-            {
-                MessageBox.Show("Select an array tag first.", "No array selected",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            btnAutoDetect.Enabled = false;
-            SetStatus("Auto-detecting header fields...");
-            Cursor = Cursors.WaitCursor;
+            btnAddMonitor.Enabled  = false;
+            btnEditMonitor.Enabled = false;
             try
             {
-                string arrayTagName = _definition.ArrayTag.Name;
-                Dictionary<string, VarInfo> found = null;
-                string diagnostics = null;
-
-                await Task.Run(() =>
+                using (var dlg = new ConfigureFifoForm(_plcService, existing))
                 {
-                    found = _plcService.AutoDetectFifoHeader(arrayTagName, out diagnostics);
-                });
+                    dlg.RequestPollSuspendAsync = async () =>
+                    {
+                        _globalPollingSuspended = true;
+                        await _plcService.WaitForIdleAsync();
+                    };
+                    dlg.NotifyPollResumed = () => { _globalPollingSuspended = false; };
 
-                if (found.TryGetValue("NextIndexToRead", out var head))
-                { _definition.HeadTag = head; txtHeadTag.Text = head.Name; }
-
-                if (found.TryGetValue("NextIndexToWrite", out var tail))
-                { _definition.TailTag = tail; txtTailTag.Text = tail.Name; }
-
-                if (found.TryGetValue("RecordsStored", out var cnt))
-                { _definition.CountTag = cnt; txtCountTag.Text = cnt.Name; }
-
-                if (found.TryGetValue("MaxNrOfRecords", out var maxRec))
-                { _definition.MaxRecordsTag = maxRec; txtMaxRecordsTag.Text = maxRec.Name; }
-
-                if (found.Count == 0)
-                {
-                    MessageBox.Show(
-                        $"No standard FIFO header fields found.\n\n{diagnostics}\n\n" +
-                        "Expected fields: NextIndexToRead, NextIndexToWrite, RecordsStored, MaxNrOfRecords\n" +
-                        "in the same DB as the selected array tag.",
-                        "Auto-detect result", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    SetStatus("Auto-detect: no fields found — see dialog for details.");
+                    if (dlg.ShowDialog(this) == DialogResult.OK)
+                    {
+                        if (existing == null)
+                        {
+                            var monitor = new FifoMonitorState
+                            {
+                                Name       = dlg.MonitorName,
+                                Definition = dlg.Definition
+                            };
+                            _monitors.Add(monitor);
+                            var item = new ListViewItem(new[] { "○", monitor.Name });
+                            item.Tag = monitor;
+                            listMonitors.Items.Add(item);
+                            item.Selected = true;
+                        }
+                        else
+                        {
+                            string oldArrayTag = existing.Definition.ArrayTag?.Name;
+                            existing.Name       = dlg.MonitorName;
+                            existing.Definition = dlg.Definition;
+                            existing.LastEntries    = null;
+                            existing.DisplayIsStale = false;
+                            existing.LastHead = existing.LastTail = existing.LastCount = existing.LastMaxRec = -1;
+                            existing.LastError = null;
+                            existing.NextPollDue = DateTime.MinValue;
+                            _plcService.ResetArrayCache(oldArrayTag);
+                            RefreshListItem(existing);
+                            UpdateRightPane(existing);
+                            if (wasPolling) existing.IsPolling = true;
+                        }
+                    }
+                    else if (wasPolling)
+                    {
+                        existing.IsPolling = true;
+                    }
                 }
-                else
-                {
-                    SetStatus($"Auto-detect: found {found.Count} of 4 header field(s).");
-                }
-            }
-            catch (Exception ex)
-            {
-                SetStatus($"Auto-detect error: {ex.Message}");
             }
             finally
             {
-                Cursor = Cursors.Default;
+                _globalPollingSuspended = false;
                 UpdateUiState();
             }
         }
 
-        private async Task<VarInfo> ShowBrowseDialog()
+        private void btnRemoveMonitor_Click(object sender, EventArgs e)
         {
-            if (!_plcService.IsConnected)
-            {
-                MessageBox.Show("Connect to a PLC first.", "Not connected",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return null;
-            }
+            if (_selectedMonitor == null) return;
+            _selectedMonitor.IsPolling = false;
+            _monitors.Remove(_selectedMonitor);
 
-            if (_polling) StopPolling();
-            await _plcService.WaitForIdleAsync();
-
-            SetStatus("Opening variable browser...");
-            using (var dlg = new BrowseForm(_plcService))
+            foreach (ListViewItem item in listMonitors.Items)
             {
-                if (dlg.ShowDialog(this) == DialogResult.OK)
+                if (item.Tag == _selectedMonitor)
                 {
-                    SetStatus("Variable selected.");
-                    return dlg.SelectedVar;
+                    listMonitors.Items.Remove(item);
+                    break;
                 }
             }
-            SetStatus("Browse cancelled.");
-            return null;
+
+            _selectedMonitor = null;
+            UpdateRightPane(null);
+            UpdateUiState();
         }
 
-        // ---- Polling ----
-
-        private void btnStart_Click(object sender, EventArgs e)
+        private void btnStartAll_Click(object sender, EventArgs e)
         {
-            if (!_plcService.IsConnected)
-            {
-                MessageBox.Show("Connect to a PLC first.", "Not connected",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            if (!_definition.IsValid)
-            {
-                MessageBox.Show("Select an array tag first using Browse...", "No array selected",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+            if (!_plcService.IsConnected || _monitors.Count == 0) return;
             if (int.TryParse(txtInterval.Text, out int ms) && ms >= 100)
                 _pollIntervalMs = ms;
             else
                 _pollIntervalMs = 500;
 
-            StartPolling();
-        }
-
-        private void btnStop_Click(object sender, EventArgs e) => StopPolling();
-
-        private void StartPolling()
-        {
-            _polling = true;
-            UpdateUiState();
-            _pollTimer = new System.Threading.Timer(OnPollTick, null, 0, Timeout.Infinite);
-        }
-
-        private void StopPolling()
-        {
-            _polling = false;
-            _pollTimer?.Dispose();
-            _pollTimer = null;
-            _lastEntries = null;
-            _displayIsStale = false;
+            foreach (var m in _monitors)
+            {
+                m.NextPollDue = DateTime.MinValue;
+                m.IsPolling   = true;
+                RefreshListItem(m);
+            }
+            EnsureTimerRunning();
             UpdateUiState();
         }
 
-        private void OnPollTick(object state)
+        private void btnStopAll_Click(object sender, EventArgs e)
         {
-            if (!_polling) return;
+            foreach (var m in _monitors)
+            {
+                m.IsPolling = false;
+                RefreshListItem(m);
+            }
+            UpdateUiState();
+        }
 
-            List<FifoEntry> entries = null;
+        // ---- Shared timer ----
+
+        private void EnsureTimerRunning()
+        {
+            if (_timerRunning) return;
+            _timerRunning = true;
+            _sharedTimer  = new System.Threading.Timer(OnSharedTick, null, 100, Timeout.Infinite);
+        }
+
+        private void StopTimer()
+        {
+            _timerRunning = false;
+            _sharedTimer?.Dispose();
+            _sharedTimer = null;
+        }
+
+        private void OnSharedTick(object state)
+        {
+            if (!Monitor.TryEnter(_tickLock)) return;
+            try
+            {
+                if (_globalPollingSuspended) return;
+
+                List<FifoMonitorState> due = null;
+                try
+                {
+                    due = (List<FifoMonitorState>)Invoke(new Func<List<FifoMonitorState>>(() =>
+                    {
+                        var now = DateTime.UtcNow;
+                        return _monitors.FindAll(m =>
+                            m.IsPolling && m.Definition.IsValid && now >= m.NextPollDue);
+                    }));
+                }
+                catch { return; }
+
+                foreach (var monitor in due)
+                {
+                    if (_globalPollingSuspended) break;
+                    PollMonitor(monitor);
+                }
+            }
+            finally
+            {
+                Monitor.Exit(_tickLock);
+                if (_timerRunning)
+                    _sharedTimer?.Change(100, Timeout.Infinite);
+            }
+        }
+
+        private void PollMonitor(FifoMonitorState monitor)
+        {
             int head = -1, tail = -1, count = -1, maxRec = -1;
+            List<FifoEntry> entries = null;
             string errorMsg = null;
 
             try
             {
-                entries = _plcService.ReadFifo(_definition, out head, out tail, out count, out maxRec);
+                entries = _plcService.ReadFifo(monitor.Definition, out head, out tail, out count, out maxRec);
             }
             catch (Exception ex)
             {
                 errorMsg = ex.Message;
             }
 
+            monitor.NextPollDue = DateTime.UtcNow.AddMilliseconds(_pollIntervalMs);
+
             BeginInvoke(new Action(() =>
             {
                 if (errorMsg != null)
-                    SetStatus($"Read error: {errorMsg}");
+                {
+                    monitor.LastError = errorMsg;
+                }
                 else if (entries != null)
                 {
-                    List<FifoEntry> display;
+                    monitor.LastError = null;
+
                     if (entries.Count > 0 && count != 0)
                     {
-                        // Active FIFO records — show fresh and update stale cache.
-                        _lastEntries    = entries;
-                        _displayIsStale = false;
-                        display         = entries;
+                        monitor.LastEntries    = entries;
+                        monitor.DisplayIsStale = false;
                     }
                     else
                     {
-                        // FIFO is empty (count==0). If ReadFifo surfaced the last-written
-                        // record, update _lastEntries so the display tracks head/tail changes.
                         if (entries.Count > 0)
-                            _lastEntries = entries;
+                            monitor.LastEntries = entries;
 
-                        if (_lastEntries != null)
-                        {
-                            _displayIsStale = true;
-                            display         = _lastEntries;
-                        }
+                        if (monitor.LastEntries != null)
+                            monitor.DisplayIsStale = true;
                         else
-                        {
-                            display = entries;
-                        }
+                            monitor.LastEntries = entries;
                     }
-                    UpdateGrid(display, head, tail, count, maxRec, _displayIsStale);
-                    string staleTag = _displayIsStale ? " [last]" : "";
-                    SetStatus($"OK | head={head} tail={tail} count={count} max={maxRec} | rows={entries.Count}{staleTag}");
-                }
-                else
-                    SetStatus("Read returned null — check connection.");
 
-                if (_polling)
-                    _pollTimer?.Change(_pollIntervalMs, Timeout.Infinite);
+                    monitor.LastHead   = head;
+                    monitor.LastTail   = tail;
+                    monitor.LastCount  = count;
+                    monitor.LastMaxRec = maxRec;
+                }
+
+                if (monitor == _selectedMonitor)
+                {
+                    if (monitor.LastError != null)
+                        SetStatus($"Read error: {monitor.LastError}");
+                    else
+                        UpdateRightPane(monitor);
+                }
             }));
         }
 
-        private void UpdateGrid(List<FifoEntry> entries, int nextIndexToRead, int nextIndexToWrite, int recordsStored, int maxNrOfRecords, bool isStale = false)
+        // ---- Right pane ----
+
+        private void UpdateRightPane(FifoMonitorState monitor)
         {
             dgvFifo.DataSource = null;
-            dgvFifo.DataSource = entries;
 
-            if (isStale)
+            if (monitor == null)
+            {
+                lblLivePointers.Text = "No monitor selected.";
+                lblLastRead.Text     = string.Empty;
+                return;
+            }
+
+            if (monitor.LastError != null)
+            {
+                lblLivePointers.Text = $"Error: {monitor.LastError}";
+                lblLastRead.Text     = string.Empty;
+                return;
+            }
+
+            var display = monitor.LastEntries ?? new List<FifoEntry>();
+            dgvFifo.DataSource = display;
+
+            if (monitor.DisplayIsStale)
             {
                 foreach (DataGridViewRow row in dgvFifo.Rows)
-                    row.DefaultCellStyle.ForeColor = System.Drawing.Color.Gray;
+                    row.DefaultCellStyle.ForeColor = Color.Gray;
             }
 
             string fmt(int v) => v >= 0 ? v.ToString() : "—";
             lblLivePointers.Text =
-                $"NextIndexToRead: {fmt(nextIndexToRead)}     " +
-                $"NextIndexToWrite: {fmt(nextIndexToWrite)}     " +
-                $"RecordsStored: {fmt(recordsStored)}     " +
-                $"MaxNrOfRecords: {fmt(maxNrOfRecords)}";
+                $"NextIndexToRead: {fmt(monitor.LastHead)}     " +
+                $"NextIndexToWrite: {fmt(monitor.LastTail)}     " +
+                $"RecordsStored: {fmt(monitor.LastCount)}     " +
+                $"MaxNrOfRecords: {fmt(monitor.LastMaxRec)}";
 
-            lblLastRead.Text = $"Last read: {DateTime.Now:HH:mm:ss.fff}   Rows shown: {entries.Count}";
+            string staleTag = monitor.DisplayIsStale ? " [last]" : string.Empty;
+            lblLastRead.Text = monitor.LastEntries != null
+                ? $"Last read: {DateTime.Now:HH:mm:ss.fff}   Rows: {display.Count}{staleTag}"
+                : string.Empty;
+
+            if (monitor.IsPolling && monitor.LastError == null)
+                SetStatus($"OK | head={fmt(monitor.LastHead)} tail={fmt(monitor.LastTail)} count={fmt(monitor.LastCount)} max={fmt(monitor.LastMaxRec)} | rows={display.Count}{staleTag}");
+        }
+
+        // ---- ListView helpers ----
+
+        private void RefreshListItem(FifoMonitorState monitor)
+        {
+            foreach (ListViewItem item in listMonitors.Items)
+            {
+                if (item.Tag != monitor) continue;
+                item.SubItems[0].Text = monitor.IsPolling ? "●" : "○";
+                item.SubItems[1].Text = monitor.Name;
+                item.ForeColor = monitor.IsPolling ? Color.Green : SystemColors.WindowText;
+                break;
+            }
+        }
+
+        private static void SetListItemPolling(ListViewItem item, bool polling)
+        {
+            item.SubItems[0].Text = polling ? "●" : "○";
+            item.ForeColor = polling ? Color.Green : SystemColors.WindowText;
+        }
+
+        // ---- Config persistence ----
+
+        private static readonly string ConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "FifoWatch", "monitors.xml");
+
+        private void SaveConfig()
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath));
+                var file = new FifoConfigFile { PollIntervalMs = _pollIntervalMs };
+                foreach (var m in _monitors)
+                {
+                    file.Monitors.Add(new FifoMonitorConfig
+                    {
+                        Name          = m.Name,
+                        ArrayTag      = ToTagConfig(m.Definition.ArrayTag),
+                        HeadTag       = ToTagConfig(m.Definition.HeadTag),
+                        TailTag       = ToTagConfig(m.Definition.TailTag),
+                        CountTag      = ToTagConfig(m.Definition.CountTag),
+                        MaxRecordsTag = ToTagConfig(m.Definition.MaxRecordsTag),
+                    });
+                }
+                using (var writer = new StreamWriter(ConfigPath))
+                    new XmlSerializer(typeof(FifoConfigFile)).Serialize(writer, file);
+            }
+            catch { }
+        }
+
+        private void LoadConfig()
+        {
+            if (!File.Exists(ConfigPath)) return;
+            try
+            {
+                FifoConfigFile file;
+                using (var reader = new StreamReader(ConfigPath))
+                    file = (FifoConfigFile)new XmlSerializer(typeof(FifoConfigFile)).Deserialize(reader);
+
+                if (file.PollIntervalMs >= 100)
+                {
+                    _pollIntervalMs  = file.PollIntervalMs;
+                    txtInterval.Text = file.PollIntervalMs.ToString();
+                }
+
+                foreach (var cfg in file.Monitors)
+                {
+                    var monitor = new FifoMonitorState
+                    {
+                        Name       = cfg.Name ?? "FIFO",
+                        Definition = new FifoDefinition
+                        {
+                            ArrayTag      = ToVarInfo(cfg.ArrayTag),
+                            HeadTag       = ToVarInfo(cfg.HeadTag),
+                            TailTag       = ToVarInfo(cfg.TailTag),
+                            CountTag      = ToVarInfo(cfg.CountTag),
+                            MaxRecordsTag = ToVarInfo(cfg.MaxRecordsTag),
+                        }
+                    };
+                    _monitors.Add(monitor);
+                    var item = new ListViewItem(new[] { "○", monitor.Name });
+                    item.Tag = monitor;
+                    listMonitors.Items.Add(item);
+                }
+            }
+            catch { }
+        }
+
+        private static FifoTagConfig ToTagConfig(VarInfo vi)
+        {
+            if (vi == null) return null;
+            return new FifoTagConfig
+            {
+                Name           = vi.Name,
+                AccessSequence = vi.AccessSequence,
+                Softdatatype   = vi.Softdatatype,
+            };
+        }
+
+        private static VarInfo ToVarInfo(FifoTagConfig cfg)
+        {
+            if (cfg == null || string.IsNullOrEmpty(cfg.Name)) return null;
+            var vi = new VarInfo();
+            vi.Name           = cfg.Name;
+            vi.AccessSequence = cfg.AccessSequence;
+            vi.Softdatatype   = cfg.Softdatatype;
+            return vi;
         }
 
         // ---- Helpers ----
@@ -366,32 +500,32 @@ namespace FifoWatch.Forms
 
         private void UpdateUiState()
         {
-            bool connected = _plcService.IsConnected;
+            bool connected  = _plcService.IsConnected;
+            bool hasMonitor = _selectedMonitor != null;
+            bool anyPolling = _monitors.Exists(m => m.IsPolling);
+
             btnConnect.Enabled    = !connected;
             btnDisconnect.Enabled = connected;
             txtIp.Enabled         = !connected;
             txtUser.Enabled       = !connected;
             txtPass.Enabled       = !connected;
 
-            btnBrowseArray.Enabled      = connected;
-            btnBrowseHead.Enabled       = connected;
-            btnBrowseTail.Enabled       = connected;
-            btnBrowseCount.Enabled      = connected;
-            btnBrowseMaxRecords.Enabled = connected;
-            btnAutoDetect.Enabled       = connected;
+            btnAddMonitor.Enabled    = connected;
+            btnEditMonitor.Enabled   = connected && hasMonitor;
+            btnRemoveMonitor.Enabled = hasMonitor;
+            btnStartAll.Enabled      = connected && _monitors.Count > 0 && !anyPolling;
+            btnStopAll.Enabled       = anyPolling;
 
-            btnStart.Enabled = connected && !_polling;
-            btnStop.Enabled  = _polling;
-
-            lblConnectionStatus.Text = connected ? "Connected" : "Disconnected";
-            lblConnectionStatus.ForeColor = connected
-                ? System.Drawing.Color.Green
-                : System.Drawing.Color.Red;
+            lblConnectionStatus.Text      = connected ? "Connected" : "Disconnected";
+            lblConnectionStatus.ForeColor = connected ? Color.Green : Color.Red;
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            StopPolling();
+            SaveConfig();
+            foreach (var m in _monitors)
+                m.IsPolling = false;
+            StopTimer();
             _plcService.Disconnect();
             base.OnFormClosing(e);
         }
