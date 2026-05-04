@@ -22,6 +22,7 @@ namespace FifoWatch.Forms
         public MainForm()
         {
             InitializeComponent();
+            txtIp.Text = Properties.Settings.Default.LastIpAddress;
             UpdateUiState();
             InitGridContextMenu();
         }
@@ -55,6 +56,9 @@ namespace FifoWatch.Forms
             string ip   = txtIp.Text.Trim();
             string user = txtUser.Text.Trim();
             string pass = txtPass.Text;
+
+            Properties.Settings.Default.LastIpAddress = ip;
+            Properties.Settings.Default.Save();
 
             int res = await Task.Run(() => _plcService.Connect(ip, user, pass));
 
