@@ -19,6 +19,8 @@ namespace FifoWatch.Services
             catch { }
         }
 
+        private readonly System.Threading.SemaphoreSlim _connLock = new System.Threading.SemaphoreSlim(1, 1);
+
         private S7CommPlusConnection _conn;
         private List<VarInfo> _varInfoList = new List<VarInfo>();
 
@@ -104,6 +106,14 @@ namespace FifoWatch.Services
 
         // --- FIFO reading ---
 
+        // Returns a Task that completes only once any in-progress ReadFifo call has finished.
+        // Call this (with await) before opening BrowseForm to avoid concurrent driver access.
+        public async System.Threading.Tasks.Task WaitForIdleAsync()
+        {
+            await _connLock.WaitAsync();
+            _connLock.Release();
+        }
+
         public List<FifoEntry> ReadFifo(FifoDefinition def, out int head, out int tail, out int count, out int maxRecords)
         {
             head = -1;
@@ -113,6 +123,10 @@ namespace FifoWatch.Services
 
             if (!IsConnected || !def.IsValid)
                 return null;
+
+            _connLock.Wait();
+            try
+            {
 
             // --- Step 1: Read pointer tags in their own call so labels always update ---
             var ptrTags = new List<PlcTag>();
@@ -253,6 +267,9 @@ namespace FifoWatch.Services
             entries = CollapseByteArrays(entries, entrySoftdatatypes);
 
             return entries;
+
+            } // try
+            finally { _connLock.Release(); }
         }
 
         // Searches for standard FIFO header fields near the selected array variable.

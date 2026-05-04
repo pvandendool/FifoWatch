@@ -77,9 +77,9 @@ namespace FifoWatch.Forms
 
         // ---- FIFO selection ----
 
-        private void btnBrowseArray_Click(object sender, EventArgs e)
+        private async void btnBrowseArray_Click(object sender, EventArgs e)
         {
-            var v = ShowBrowseDialog();
+            var v = await ShowBrowseDialog();
             if (v != null)
             {
                 _definition.ArrayTag = v;
@@ -99,9 +99,9 @@ namespace FifoWatch.Forms
             _plcService.ResetArrayCache();
         }
 
-        private void btnBrowseHead_Click(object sender, EventArgs e)
+        private async void btnBrowseHead_Click(object sender, EventArgs e)
         {
-            var v = ShowBrowseDialog();
+            var v = await ShowBrowseDialog();
             if (v != null) { _definition.HeadTag = v; txtHeadTag.Text = v.Name; }
         }
 
@@ -111,9 +111,9 @@ namespace FifoWatch.Forms
             txtHeadTag.Text = string.Empty;
         }
 
-        private void btnBrowseTail_Click(object sender, EventArgs e)
+        private async void btnBrowseTail_Click(object sender, EventArgs e)
         {
-            var v = ShowBrowseDialog();
+            var v = await ShowBrowseDialog();
             if (v != null) { _definition.TailTag = v; txtTailTag.Text = v.Name; }
         }
 
@@ -123,9 +123,9 @@ namespace FifoWatch.Forms
             txtTailTag.Text = string.Empty;
         }
 
-        private void btnBrowseCount_Click(object sender, EventArgs e)
+        private async void btnBrowseCount_Click(object sender, EventArgs e)
         {
-            var v = ShowBrowseDialog();
+            var v = await ShowBrowseDialog();
             if (v != null) { _definition.CountTag = v; txtCountTag.Text = v.Name; }
         }
 
@@ -135,9 +135,9 @@ namespace FifoWatch.Forms
             txtCountTag.Text = string.Empty;
         }
 
-        private void btnBrowseMaxRecords_Click(object sender, EventArgs e)
+        private async void btnBrowseMaxRecords_Click(object sender, EventArgs e)
         {
-            var v = ShowBrowseDialog();
+            var v = await ShowBrowseDialog();
             if (v != null) { _definition.MaxRecordsTag = v; txtMaxRecordsTag.Text = v.Name; }
         }
 
@@ -207,7 +207,7 @@ namespace FifoWatch.Forms
             }
         }
 
-        private VarInfo ShowBrowseDialog()
+        private async Task<VarInfo> ShowBrowseDialog()
         {
             if (!_plcService.IsConnected)
             {
@@ -217,6 +217,7 @@ namespace FifoWatch.Forms
             }
 
             if (_polling) StopPolling();
+            await _plcService.WaitForIdleAsync();
 
             SetStatus("Opening variable browser...");
             using (var dlg = new BrowseForm(_plcService))
