@@ -13,6 +13,7 @@ A Windows desktop tool for live-monitoring FIFO buffers on Siemens S7-1500 / S7-
 - Live pointer readout (head / tail / stored / max) updated on every poll tick
 - Right-click a row to copy the variable name or its value to the clipboard
 - Monitor configuration and last used IP address are remembered between sessions
+- **Log to file** — enable the Logging bar to write every FIFO read to a plain-text `.log` file; choose any output folder and the app writes one file per monitor, each line timestamped to the millisecond
 
 ## Requirements
 
@@ -32,6 +33,7 @@ Open `FifoWatch.sln` in Visual Studio 2019 or later and build the `Release | x64
 3. **Add more monitors** — repeat step 2 for each FIFO you want to watch.
 4. **Start polling** — set the desired interval in milliseconds and click **▶ Start All**. All monitors poll in the background; click a monitor in the list to see its live data in the grid.
 5. **Stop** — click **■ Stop All** at any time. Use **Edit** to reconfigure a monitor without disconnecting.
+6. **Log to file** (optional) — tick **Enable logging** in the Logging bar, optionally click **Browse...** to choose an output folder, then start polling. A `<MonitorName>.log` file is written whenever the FIFO data changes.
 
 Monitor configurations are saved automatically when you close the app and restored on next launch.
 

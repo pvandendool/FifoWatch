@@ -90,6 +90,7 @@
       <DependentUpon>Settings.settings</DependentUpon>
       <AutoGen>True</AutoGen>
     </Compile>
+    <Compile Include="Services\FifoLogger.cs" />
     <Compile Include="Services\PlcService.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -2,6 +2,13 @@
 
 All notable changes to FifoWatch are documented here.
 
+## [1.2.0] - 2026-06-02
+
+### Added
+- **FIFO logging**: a new Logging bar between the Connection and monitor list lets you enable writing every FIFO read to a plain-text log file. Enable with the checkbox, pick a folder with the Browse button, then start polling — a file named `<MonitorName>.log` is created in the chosen folder. Each logged line starts with a timestamp (`yyyy-MM-dd HH:mm:ss.fff`) followed by the variable name and value.
+- Logging only writes when the grid content changes, so the log file does not fill up with repeated identical entries between PLC updates.
+- Logging settings (enabled state and folder path) are persisted in `monitors.xml` alongside the monitor configuration.
+
 ## [1.1.0] - 2026-05-04
 
 ### Added

@@ -28,7 +28,8 @@ namespace FifoWatch.Forms
         public MainForm()
         {
             InitializeComponent();
-            txtIp.Text = Properties.Settings.Default.LastIpAddress;
+            txtIp.Text        = Properties.Settings.Default.LastIpAddress;
+            txtLogFolder.Text = FifoLogger.DefaultLogDir;
             UpdateUiState();
             InitGridContextMenu();
             Load += (s, e) =>
@@ -56,6 +57,25 @@ namespace FifoWatch.Forms
             var row = dgvFifo.CurrentRow;
             if (row == null) return;
             Clipboard.SetText(row.Cells[columnName]?.Value?.ToString() ?? string.Empty);
+        }
+
+        // ---- Logging ----
+
+        private void chkLoggingEnabled_CheckedChanged(object sender, EventArgs e)
+        {
+            txtLogFolder.Enabled = chkLoggingEnabled.Checked;
+        }
+
+        private void btnBrowseLogFolder_Click(object sender, EventArgs e)
+        {
+            using (var dlg = new FolderBrowserDialog())
+            {
+                dlg.Description         = "Select log output folder";
+                dlg.SelectedPath        = txtLogFolder.Text.Trim();
+                dlg.ShowNewFolderButton = true;
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                    txtLogFolder.Text = dlg.SelectedPath;
+            }
         }
 
         // ---- Connection ----
@@ -160,8 +180,9 @@ namespace FifoWatch.Forms
                             string oldArrayTag = existing.Definition.ArrayTag?.Name;
                             existing.Name       = dlg.MonitorName;
                             existing.Definition = dlg.Definition;
-                            existing.LastEntries    = null;
-                            existing.DisplayIsStale = false;
+                            existing.LastEntries       = null;
+                            existing.LastLoggedEntries = null;
+                            existing.DisplayIsStale    = false;
                             existing.LastHead = existing.LastTail = existing.LastCount = existing.LastMaxRec = -1;
                             existing.LastError = null;
                             existing.NextPollDue = DateTime.MinValue;
@@ -324,6 +345,18 @@ namespace FifoWatch.Forms
                             monitor.LastEntries = entries;
                     }
 
+                    // Log whenever grid data changes — covers both live and stale entries.
+                    if (chkLoggingEnabled.Checked &&
+                        monitor.LastEntries != null && monitor.LastEntries.Count > 0 &&
+                        !EntriesMatch(monitor.LastEntries, monitor.LastLoggedEntries))
+                    {
+                        string logErr = FifoLogger.Append(txtLogFolder.Text.Trim(), monitor.Name, monitor.LastEntries);
+                        if (logErr != null)
+                            SetStatus($"Log write error: {logErr}");
+                        else
+                            monitor.LastLoggedEntries = monitor.LastEntries;
+                    }
+
                     monitor.LastHead   = head;
                     monitor.LastTail   = tail;
                     monitor.LastCount  = count;
@@ -338,6 +371,17 @@ namespace FifoWatch.Forms
                         UpdateRightPane(monitor);
                 }
             }));
+        }
+
+        private static bool EntriesMatch(List<FifoEntry> a, List<FifoEntry> b)
+        {
+            if (a == null && b == null) return true;
+            if (a == null || b == null) return false;
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+                if (a[i].Variable != b[i].Variable || a[i].Value != b[i].Value)
+                    return false;
+            return true;
         }
 
         // ---- Right pane ----
@@ -416,7 +460,12 @@ namespace FifoWatch.Forms
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath));
-                var file = new FifoConfigFile { PollIntervalMs = _pollIntervalMs };
+                var file = new FifoConfigFile
+                {
+                    PollIntervalMs = _pollIntervalMs,
+                    LoggingEnabled = chkLoggingEnabled.Checked,
+                    LogFolder      = txtLogFolder.Text.Trim(),
+                };
                 foreach (var m in _monitors)
                 {
                     file.Monitors.Add(new FifoMonitorConfig
@@ -449,6 +498,10 @@ namespace FifoWatch.Forms
                     _pollIntervalMs  = file.PollIntervalMs;
                     txtInterval.Text = file.PollIntervalMs.ToString();
                 }
+
+                chkLoggingEnabled.Checked = file.LoggingEnabled;
+                if (!string.IsNullOrWhiteSpace(file.LogFolder))
+                    txtLogFolder.Text = file.LogFolder;
 
                 foreach (var cfg in file.Monitors)
                 {

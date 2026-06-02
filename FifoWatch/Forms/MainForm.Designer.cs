@@ -19,6 +19,13 @@ namespace FifoWatch.Forms
         private Button               btnDisconnect;
         private Label                lblConnectionStatus;
 
+        // Logging controls
+        private GroupBox             grpLogging;
+        private CheckBox             chkLoggingEnabled;
+        private Label                lblLogFolder;
+        private TextBox              txtLogFolder;
+        private Button               btnBrowseLogFolder;
+
         // Layout
         private SplitContainer       splitMain;
 
@@ -67,6 +74,13 @@ namespace FifoWatch.Forms
             this.lblConnectionStatus = new Label();
             this.grpConnection       = new GroupBox();
 
+            // Logging
+            this.chkLoggingEnabled   = new CheckBox();
+            this.lblLogFolder        = new Label();
+            this.txtLogFolder        = new TextBox();
+            this.btnBrowseLogFolder  = new Button();
+            this.grpLogging          = new GroupBox();
+
             // Layout
             this.splitMain           = new SplitContainer();
 
@@ -95,6 +109,9 @@ namespace FifoWatch.Forms
             this.statusStrip         = new StatusStrip();
 
             this.grpConnection.SuspendLayout();
+            this.grpLogging.SuspendLayout();
+            var tlpLogging = new TableLayoutPanel();
+            tlpLogging.SuspendLayout();
             this.pnlListButtons.SuspendLayout();
             this.pnlListButtonsRow1.SuspendLayout();
             this.pnlListButtonsRow2.SuspendLayout();
@@ -163,6 +180,52 @@ namespace FifoWatch.Forms
                 this.btnConnect, this.btnDisconnect,
                 this.lblConnectionStatus
             });
+
+            // ===== Logging GroupBox =====
+            // Use a TableLayoutPanel so the textbox stretches and the Browse button
+            // stays at the right edge regardless of form width — avoids the Anchor
+            // miscalculation that occurs when GroupBox size is unknown at init time.
+            this.grpLogging.Text    = "Logging";
+            this.grpLogging.Dock    = DockStyle.Top;
+            this.grpLogging.Height  = 54;
+            this.grpLogging.Padding = new Padding(8, 2, 8, 2);
+
+            tlpLogging.Dock        = DockStyle.Fill;
+            tlpLogging.ColumnCount = 4;
+            tlpLogging.RowCount    = 1;
+            tlpLogging.Margin      = new Padding(0);
+            tlpLogging.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));       // checkbox
+            tlpLogging.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));       // label
+            tlpLogging.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F)); // textbox (fills)
+            tlpLogging.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));       // button
+            tlpLogging.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+
+            this.chkLoggingEnabled.Text    = "Enable logging";
+            this.chkLoggingEnabled.AutoSize = true;
+            this.chkLoggingEnabled.Anchor  = AnchorStyles.Left;
+            this.chkLoggingEnabled.Margin  = new Padding(0, 0, 8, 0);
+            this.chkLoggingEnabled.CheckedChanged += new System.EventHandler(this.chkLoggingEnabled_CheckedChanged);
+
+            this.lblLogFolder.Text     = "Log folder:";
+            this.lblLogFolder.AutoSize = true;
+            this.lblLogFolder.Anchor   = AnchorStyles.Left;
+            this.lblLogFolder.Margin   = new Padding(0, 0, 4, 0);
+
+            this.txtLogFolder.Anchor  = AnchorStyles.Left | AnchorStyles.Right;
+            this.txtLogFolder.Margin  = new Padding(0, 0, 6, 0);
+            this.txtLogFolder.Enabled = false;
+
+            this.btnBrowseLogFolder.Text   = "Browse...";
+            this.btnBrowseLogFolder.Width  = 80;
+            this.btnBrowseLogFolder.Anchor = AnchorStyles.None;
+            this.btnBrowseLogFolder.Margin = new Padding(0, 2, 0, 2);
+            this.btnBrowseLogFolder.Click += new System.EventHandler(this.btnBrowseLogFolder_Click);
+
+            tlpLogging.Controls.Add(this.chkLoggingEnabled,   0, 0);
+            tlpLogging.Controls.Add(this.lblLogFolder,         1, 0);
+            tlpLogging.Controls.Add(this.txtLogFolder,         2, 0);
+            tlpLogging.Controls.Add(this.btnBrowseLogFolder,   3, 0);
+            this.grpLogging.Controls.Add(tlpLogging);
 
             // ===== SplitContainer =====
             this.splitMain.Dock      = DockStyle.Fill;
@@ -290,16 +353,22 @@ namespace FifoWatch.Forms
             this.statusStrip.SizingGrip = false;
 
             // ===== MainForm =====
+            // Add order determines docking: highest index docks first.
+            // splitMain(Fill) → grpLogging(Top, below connection) → grpConnection(Top, very top) → statusStrip(Bottom)
             this.Text          = "FifoWatch — PLC FIFO Viewer";
             this.ClientSize    = new Size(960, 680);
             this.MinimumSize   = new Size(700, 500);
             this.StartPosition = FormStartPosition.CenterScreen;
 
+            // Docking stacks in Controls order: grpConnection docks top first, grpLogging second (below it).
             this.Controls.Add(this.splitMain);
             this.Controls.Add(this.grpConnection);
+            this.Controls.Add(this.grpLogging);
             this.Controls.Add(this.statusStrip);
 
             this.grpConnection.ResumeLayout(false);
+            tlpLogging.ResumeLayout(false);
+            this.grpLogging.ResumeLayout(false);
             this.pnlListButtons.ResumeLayout(false);
             this.pnlListButtonsRow1.ResumeLayout(false);
             this.pnlListButtonsRow2.ResumeLayout(false);

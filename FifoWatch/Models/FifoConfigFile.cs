@@ -6,7 +6,9 @@ namespace FifoWatch.Models
     [XmlRoot("FifoWatchConfig")]
     public class FifoConfigFile
     {
-        public int PollIntervalMs { get; set; } = 500;
+        public int    PollIntervalMs  { get; set; } = 500;
+        public bool   LoggingEnabled  { get; set; } = false;
+        public string LogFolder       { get; set; }
 
         [XmlArray("Monitors")]
         [XmlArrayItem("Monitor")]
